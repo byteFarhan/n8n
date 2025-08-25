@@ -1,5 +1,6 @@
 import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 
+import type { WorkflowPlan } from '../agents/workflow-planner-agent';
 import type {
 	AgentMessageChunk,
 	ToolProgressChunk,
@@ -36,6 +37,23 @@ export function processStreamChunk(streamMode: string, chunk: unknown): StreamOu
 				workflowJSON?: unknown;
 				workflowOperations?: unknown;
 			};
+			createPlan?: {
+				workflowPlan?: unknown;
+				planStatus?: string;
+			};
+			reviewPlan?: {
+				planStatus?: string;
+			};
+			adjustPlan?: {
+				workflowPlan?: unknown;
+				planStatus?: string;
+			};
+			__interrupt__?: Array<{
+				value: unknown;
+				resumable: boolean;
+				ns: string[];
+				when: string;
+			}>;
 		};
 
 		if ((agentChunk?.delete_messages?.messages ?? []).length > 0) {
@@ -83,6 +101,29 @@ export function processStreamChunk(streamMode: string, chunk: unknown): StreamOu
 
 				return { messages: [messageChunk] };
 			}
+		}
+
+		// Handle plan creation
+		if (agentChunk?.createPlan?.workflowPlan) {
+			const workflowPlan = agentChunk.createPlan.workflowPlan as WorkflowPlan;
+			const planChunk = {
+				role: 'assistant' as const,
+				type: 'plan' as const,
+				plan: workflowPlan.plan,
+				message: workflowPlan.intro,
+			};
+			return { messages: [planChunk] };
+		}
+
+		if (agentChunk?.adjustPlan?.workflowPlan) {
+			const workflowPlan = agentChunk.adjustPlan.workflowPlan as WorkflowPlan;
+			const planChunk = {
+				role: 'assistant' as const,
+				type: 'plan' as const,
+				plan: workflowPlan.plan,
+				message: workflowPlan.intro,
+			};
+			return { messages: [planChunk] };
 		}
 
 		// Handle process_operations updates - emit workflow update after operations are processed
@@ -170,6 +211,16 @@ export function formatMessages(
 			if (msg.tool_calls && msg.tool_calls.length > 0) {
 				// Add tool messages for each tool call
 				for (const toolCall of msg.tool_calls) {
+					if (toolCall.name === 'generate_workflow_plan') {
+						const workflowPlan = toolCall.args as WorkflowPlan;
+						formattedMessages.push({
+							role: 'assistant',
+							type: 'plan',
+							plan: workflowPlan.plan,
+							message: workflowPlan.intro,
+						});
+						continue;
+					}
 					formattedMessages.push({
 						id: toolCall.id,
 						toolCallId: toolCall.id,
