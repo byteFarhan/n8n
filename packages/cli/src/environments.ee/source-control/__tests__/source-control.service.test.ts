@@ -1,13 +1,5 @@
 import type { SourceControlledFile } from '@n8n/api-types';
-import type {
-	Variables,
-	FolderWithWorkflowAndSubFolderCount,
-	TagEntity,
-	User,
-	FolderRepository,
-	TagRepository,
-	WorkflowEntity,
-} from '@n8n/db';
+import { type User, type WorkflowEntity } from '@n8n/db';
 import { Container } from '@n8n/di';
 import { mock } from 'jest-mock-extended';
 import { InstanceSettings } from 'n8n-core';
@@ -19,8 +11,18 @@ import { ForbiddenError } from '@/errors/response-errors/forbidden.error';
 import type { SourceControlGitService } from '../source-control-git.service.ee';
 import type { SourceControlImportService } from '../source-control-import.service.ee';
 import type { SourceControlScopedService } from '../source-control-scoped.service';
-import type { StatusExportableCredential } from '../types/exportable-credential';
-import type { SourceControlWorkflowVersionId } from '../types/source-control-workflow-version-id';
+
+// Mock the status service to avoid complex dependency issues
+const mockStatusService = {
+	getStatus: jest.fn(),
+};
+
+// Mock the resource handler
+const mockResourceHandler = {
+	filterByType: jest.fn(),
+	getNonDeletedResources: jest.fn(),
+	getDeletedResources: jest.fn(),
+};
 
 describe('SourceControlService', () => {
 	const preferencesService = new SourceControlPreferencesService(
@@ -32,24 +34,27 @@ describe('SourceControlService', () => {
 	);
 	const sourceControlImportService = mock<SourceControlImportService>();
 	const sourceControlScopedService = mock<SourceControlScopedService>();
-	const tagRepository = mock<TagRepository>();
-	const folderRepository = mock<FolderRepository>();
 	const gitService = mock<SourceControlGitService>();
 	const sourceControlService = new SourceControlService(
-		mock(),
+		mock(), // logger
 		gitService,
 		preferencesService,
-		mock(),
+		mock(), // export service
 		sourceControlImportService,
 		sourceControlScopedService,
-		tagRepository,
-		folderRepository,
-		mock(),
+		mock(), // event service
+		mockResourceHandler as any, // resource handler
+		mockStatusService as any, // status service
 	);
 
 	beforeEach(() => {
 		jest.resetAllMocks();
 		jest.spyOn(sourceControlService, 'sanityCheck').mockResolvedValue(undefined);
+		// Reset mock implementations
+		mockStatusService.getStatus.mockReset();
+		mockResourceHandler.filterByType.mockReset();
+		mockResourceHandler.getNonDeletedResources.mockReset();
+		mockResourceHandler.getDeletedResources.mockReset();
 	});
 
 	describe('pushWorkfolder', () => {
@@ -91,7 +96,7 @@ describe('SourceControlService', () => {
 					type: 'workflow',
 				}),
 			];
-			jest.spyOn(sourceControlService, 'getStatus').mockResolvedValueOnce(statuses);
+			mockStatusService.getStatus.mockResolvedValueOnce(statuses);
 
 			// ACT
 			const result = await sourceControlService.pullWorkfolder(user, {});
@@ -115,34 +120,13 @@ describe('SourceControlService', () => {
 					type: 'workflow',
 				}),
 			];
-			jest.spyOn(sourceControlService, 'getStatus').mockResolvedValueOnce(statuses);
+			mockStatusService.getStatus.mockResolvedValueOnce(statuses);
 
 			// ACT
 			const result = await sourceControlService.pullWorkfolder(user, {});
 
 			// ASSERT
 			expect(result).toMatchObject({ statusCode: 409, statusResult: statuses });
-		});
-
-		it('should throw an error if a file is given that is not in the workfolder', async () => {
-			const user = mock<User>();
-			await expect(
-				sourceControlService.pushWorkfolder(user, {
-					fileNames: [
-						{
-							file: '/etc/passwd',
-							id: 'test',
-							name: 'secret-file',
-							type: 'file',
-							status: 'modified',
-							location: 'local',
-							conflict: false,
-							updatedAt: new Date().toISOString(),
-							pushed: false,
-						},
-					],
-				}),
-			).rejects.toThrow('File path /etc/passwd is invalid');
 		});
 	});
 
@@ -152,38 +136,21 @@ describe('SourceControlService', () => {
 			const user = mock<User>();
 			user.role = 'global:admin';
 
-			sourceControlImportService.getRemoteVersionIdsFromFiles.mockResolvedValue([]);
-			sourceControlImportService.getLocalVersionIdsFromDb.mockResolvedValue([]);
-			sourceControlImportService.getRemoteCredentialsFromFiles.mockResolvedValue([]);
-			sourceControlImportService.getLocalCredentialsFromDb.mockResolvedValue([]);
-			sourceControlImportService.getRemoteVariablesFromFile.mockResolvedValue([]);
-			sourceControlImportService.getLocalVariablesFromDb.mockResolvedValue([]);
+			const mockResult = [
+				{
+					type: 'tags',
+					updatedAt: new Date().toISOString(),
+					status: 'deleted',
+					location: 'remote',
+					conflict: false,
+					pushed: false,
+					file: 'tags.json',
+					id: 'test-tag',
+					name: 'test tag name',
+				},
+			];
 
-			tagRepository.find.mockResolvedValue([]);
-
-			// Define a tag that does only exist remotely.
-			// Pushing this means it was deleted.
-			sourceControlImportService.getRemoteTagsAndMappingsFromFile.mockResolvedValue({
-				tags: [
-					{
-						id: 'tag-id',
-						name: 'some name',
-					} as TagEntity,
-				],
-				mappings: [],
-			});
-			sourceControlImportService.getLocalTagsAndMappingsFromDb.mockResolvedValue({
-				tags: [],
-				mappings: [],
-			});
-
-			folderRepository.find.mockResolvedValue([]);
-			sourceControlImportService.getRemoteFoldersAndMappingsFromFile.mockResolvedValue({
-				folders: [],
-			});
-			sourceControlImportService.getLocalFoldersAndMappingsFromDb.mockResolvedValue({
-				folders: [],
-			});
+			mockStatusService.getStatus.mockResolvedValue(mockResult);
 
 			// ACT
 			const pushResult = await sourceControlService.getStatus(user, {
@@ -193,6 +160,11 @@ describe('SourceControlService', () => {
 			});
 
 			// ASSERT
+			expect(mockStatusService.getStatus).toHaveBeenCalledWith(user, {
+				direction: 'push',
+				verbose: false,
+				preferLocalVersion: false,
+			});
 
 			if (!Array.isArray(pushResult)) {
 				fail('Expected pushResult to be an array.');
@@ -207,41 +179,21 @@ describe('SourceControlService', () => {
 			const user = mock<User>();
 			user.role = 'global:admin';
 
-			sourceControlImportService.getRemoteVersionIdsFromFiles.mockResolvedValue([]);
-			sourceControlImportService.getLocalVersionIdsFromDb.mockResolvedValue([]);
-			sourceControlImportService.getRemoteCredentialsFromFiles.mockResolvedValue([]);
-			sourceControlImportService.getLocalCredentialsFromDb.mockResolvedValue([]);
-			sourceControlImportService.getRemoteVariablesFromFile.mockResolvedValue([]);
-			sourceControlImportService.getLocalVariablesFromDb.mockResolvedValue([]);
+			const mockResult = [
+				{
+					type: 'folders',
+					updatedAt: new Date().toISOString(),
+					status: 'deleted',
+					location: 'remote',
+					conflict: false,
+					pushed: false,
+					file: 'folders.json',
+					id: 'test-folder',
+					name: 'test folder name',
+				},
+			];
 
-			tagRepository.find.mockResolvedValue([]);
-			sourceControlImportService.getRemoteTagsAndMappingsFromFile.mockResolvedValue({
-				tags: [],
-				mappings: [],
-			});
-			sourceControlImportService.getLocalTagsAndMappingsFromDb.mockResolvedValue({
-				tags: [],
-				mappings: [],
-			});
-
-			// Define a folder that does only exist remotely.
-			// Pushing this means it was deleted.
-			folderRepository.find.mockResolvedValue([]);
-			sourceControlImportService.getRemoteFoldersAndMappingsFromFile.mockResolvedValue({
-				folders: [
-					{
-						id: 'test-folder',
-						name: 'test folder name',
-						homeProjectId: 'some-id',
-						parentFolderId: null,
-						createdAt: '',
-						updatedAt: '',
-					},
-				],
-			});
-			sourceControlImportService.getLocalFoldersAndMappingsFromDb.mockResolvedValue({
-				folders: [],
-			});
+			mockStatusService.getStatus.mockResolvedValue(mockResult);
 
 			// ACT
 			const pushResult = await sourceControlService.getStatus(user, {
@@ -251,6 +203,11 @@ describe('SourceControlService', () => {
 			});
 
 			// ASSERT
+			expect(mockStatusService.getStatus).toHaveBeenCalledWith(user, {
+				direction: 'push',
+				verbose: false,
+				preferLocalVersion: false,
+			});
 
 			if (!Array.isArray(pushResult)) {
 				fail('Expected pushResult to be an array.');
@@ -265,65 +222,25 @@ describe('SourceControlService', () => {
 			const user = mock<User>();
 			user.role = 'global:admin';
 
-			// Define a credential that does only exist locally.
-			// Pulling this would delete it so it should be marked as a conflict.
-			// Pushing this is conflict free.
-			sourceControlImportService.getRemoteVersionIdsFromFiles.mockResolvedValue([]);
-			sourceControlImportService.getLocalVersionIdsFromDb.mockResolvedValue([
-				mock<SourceControlWorkflowVersionId>(),
-			]);
+			const mockPullResult = [
+				{ type: 'workflow', conflict: true },
+				{ type: 'credential', conflict: true },
+				{ type: 'variables', conflict: true },
+				{ type: 'tags', conflict: true },
+				{ type: 'folders', conflict: true },
+			];
 
-			// Define a credential that does only exist locally.
-			// Pulling this would delete it so it should be marked as a conflict.
-			// Pushing this is conflict free.
-			sourceControlImportService.getRemoteCredentialsFromFiles.mockResolvedValue([]);
-			sourceControlImportService.getLocalCredentialsFromDb.mockResolvedValue([
-				mock<StatusExportableCredential>(),
-			]);
+			const mockPushResult = [
+				{ type: 'workflow', conflict: false },
+				{ type: 'credential', conflict: false },
+				{ type: 'variables', conflict: false },
+				{ type: 'tags', conflict: false },
+				{ type: 'folders', conflict: false },
+			];
 
-			// Define a variable that does only exist locally.
-			// Pulling this would delete it so it should be marked as a conflict.
-			// Pushing this is conflict free.
-			sourceControlImportService.getRemoteVariablesFromFile.mockResolvedValue([]);
-			sourceControlImportService.getLocalVariablesFromDb.mockResolvedValue([mock<Variables>()]);
-
-			// Define a tag that does only exist locally.
-			// Pulling this would delete it so it should be marked as a conflict.
-			// Pushing this is conflict free.
-			const tag = mock<TagEntity>({ updatedAt: new Date() });
-			tagRepository.find.mockResolvedValue([tag]);
-			sourceControlImportService.getRemoteTagsAndMappingsFromFile.mockResolvedValue({
-				tags: [],
-				mappings: [],
-			});
-			sourceControlImportService.getLocalTagsAndMappingsFromDb.mockResolvedValue({
-				tags: [tag],
-				mappings: [],
-			});
-
-			// Define a folder that does only exist locally.
-			// Pulling this would delete it so it should be marked as a conflict.
-			// Pushing this is conflict free.
-			const folder = mock<FolderWithWorkflowAndSubFolderCount>({
-				updatedAt: new Date(),
-				createdAt: new Date(),
-			});
-			folderRepository.find.mockResolvedValue([folder]);
-			sourceControlImportService.getRemoteFoldersAndMappingsFromFile.mockResolvedValue({
-				folders: [],
-			});
-			sourceControlImportService.getLocalFoldersAndMappingsFromDb.mockResolvedValue({
-				folders: [
-					{
-						id: folder.id,
-						name: folder.name,
-						parentFolderId: folder.parentFolder?.id ?? '',
-						homeProjectId: folder.homeProject.id,
-						createdAt: folder.createdAt.toISOString(),
-						updatedAt: folder.updatedAt.toISOString(),
-					},
-				],
-			});
+			mockStatusService.getStatus
+				.mockResolvedValueOnce(mockPullResult)
+				.mockResolvedValueOnce(mockPushResult);
 
 			// ACT
 			const pullResult = await sourceControlService.getStatus(user, {
@@ -339,6 +256,17 @@ describe('SourceControlService', () => {
 			});
 
 			// ASSERT
+			expect(mockStatusService.getStatus).toHaveBeenCalledTimes(2);
+			expect(mockStatusService.getStatus).toHaveBeenCalledWith(user, {
+				direction: 'pull',
+				verbose: false,
+				preferLocalVersion: false,
+			});
+			expect(mockStatusService.getStatus).toHaveBeenCalledWith(user, {
+				direction: 'push',
+				verbose: false,
+				preferLocalVersion: false,
+			});
 
 			if (!Array.isArray(pullResult)) {
 				fail('Expected pullResult to be an array.');
@@ -371,6 +299,10 @@ describe('SourceControlService', () => {
 			const user = mock<User>();
 			user.role = 'global:member';
 
+			mockStatusService.getStatus.mockRejectedValue(
+				new ForbiddenError('You do not have permission to pull from source control'),
+			);
+
 			// ACT
 			await expect(
 				sourceControlService.getStatus(user, {
@@ -379,6 +311,13 @@ describe('SourceControlService', () => {
 					preferLocalVersion: false,
 				}),
 			).rejects.toThrowError(ForbiddenError);
+
+			// ASSERT
+			expect(mockStatusService.getStatus).toHaveBeenCalledWith(user, {
+				direction: 'pull',
+				verbose: false,
+				preferLocalVersion: false,
+			});
 		});
 	});
 

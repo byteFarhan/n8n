@@ -3,10 +3,8 @@ import { createTeamProject, createWorkflow, testDb } from '@n8n/backend-test-uti
 import {
 	CredentialsEntity,
 	type Folder,
-	FolderRepository,
 	Project,
 	type TagEntity,
-	TagRepository,
 	type User,
 	WorkflowEntity,
 } from '@n8n/db';
@@ -40,6 +38,8 @@ import { createCredentials } from '@test-integration/db/credentials';
 import { createFolder } from '@test-integration/db/folders';
 import { assignTagToWorkflow, createTag, updateTag } from '@test-integration/db/tags';
 import { createUser } from '@test-integration/db/users';
+import { GenericResourceHandler } from '@/environments.ee/source-control/resource-handlers/generic-resource-handler';
+import { SourceControlStatusService } from '@/environments.ee/source-control/source-control-status.service.ee';
 
 jest.mock('fast-glob');
 
@@ -174,6 +174,7 @@ describe('SourceControlService', () => {
 
 	let gitService: SourceControlGitService;
 	let service: SourceControlService;
+	let statusService: SourceControlStatusService;
 
 	let cipher: Cipher;
 
@@ -422,6 +423,7 @@ describe('SourceControlService', () => {
 		};
 
 		gitService = mock<SourceControlGitService>();
+		statusService = Container.get(SourceControlStatusService);
 
 		service = new SourceControlService(
 			mock(),
@@ -430,14 +432,14 @@ describe('SourceControlService', () => {
 			Container.get(SourceControlExportService),
 			Container.get(SourceControlImportService),
 			Container.get(SourceControlScopedService),
-			Container.get(TagRepository),
-			Container.get(FolderRepository),
 			Container.get(EventService),
+			Container.get(GenericResourceHandler),
+			statusService,
 		);
 
 		// Skip actual git operations
 		service.sanityCheck = async () => {};
-		service.resetWorkfolder = async () => undefined;
+		statusService['resetWorkfolder'] = async () => undefined;
 
 		// Git mocking
 		gitFiles = {
