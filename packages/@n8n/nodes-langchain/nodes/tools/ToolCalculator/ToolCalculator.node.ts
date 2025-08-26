@@ -67,7 +67,9 @@ export class ToolCalculator implements INodeType {
 			const result = await calculator.invoke(inputItem.json);
 			response.push([
 				{
-					json: result,
+					json: {
+						response: result,
+					},
 					pairedItems: {
 						itemIndex: i,
 					},
