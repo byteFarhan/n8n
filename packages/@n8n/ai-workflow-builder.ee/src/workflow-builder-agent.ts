@@ -17,8 +17,7 @@ import { workflowNameChain } from '@/chains/workflow-name';
 import {
 	DEFAULT_AUTO_COMPACT_THRESHOLD_TOKENS,
 	MAX_AI_BUILDER_PROMPT_LENGTH,
-	MAX_OUTPUT_TOKENS,
-	MAX_TOTAL_TOKENS,
+	MAX_INPUT_TOKENS,
 } from '@/constants';
 import { createGetNodeParameterTool } from '@/tools/get-node-parameter.tool';
 import { trimWorkflowJSON } from '@/utils/trim-workflow-context';
@@ -120,7 +119,7 @@ export class WorkflowBuilderAgent {
 
 			const estimatedTokens = estimateTokenCountFromMessages(prompt.messages);
 
-			if (estimatedTokens > MAX_TOTAL_TOKENS - MAX_OUTPUT_TOKENS) {
+			if (estimatedTokens > MAX_INPUT_TOKENS) {
 				throw new WorkflowStateError(
 					'The current conversation and workflow state is too large to process. Please simplify the workflow and try again.',
 				);
