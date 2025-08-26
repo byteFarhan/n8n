@@ -14,10 +14,17 @@ import {
 } from 'n8n-workflow';
 
 import { workflowNameChain } from '@/chains/workflow-name';
-import { DEFAULT_AUTO_COMPACT_THRESHOLD_TOKENS, MAX_AI_BUILDER_PROMPT_LENGTH } from '@/constants';
+import {
+	DEFAULT_AUTO_COMPACT_THRESHOLD_TOKENS,
+	MAX_AI_BUILDER_PROMPT_LENGTH,
+	MAX_OUTPUT_TOKENS,
+	MAX_TOTAL_TOKENS,
+} from '@/constants';
+import { createGetNodeParameterTool } from '@/tools/get-node-parameter.tool';
+import { trimWorkflowJSON } from '@/utils/trim-workflow-context';
 
 import { conversationCompactChain } from './chains/conversation-compact';
-import { LLMServiceError, ValidationError } from './errors';
+import { LLMServiceError, ValidationError, WorkflowStateError } from './errors';
 import { createAddNodeTool } from './tools/add-node.tool';
 import { createConnectNodesTool } from './tools/connect-nodes.tool';
 import { createNodeDetailsTool } from './tools/node-details.tool';
@@ -28,7 +35,7 @@ import { createUpdateNodeParametersTool } from './tools/update-node-parameters.t
 import type { SimpleWorkflow } from './types/workflow';
 import { processOperations } from './utils/operations-processor';
 import { createStreamProcessor, formatMessages } from './utils/stream-processor';
-import { extractLastTokenUsage } from './utils/token-usage';
+import { estimateTokenCountFromMessages, extractLastTokenUsage } from './utils/token-usage';
 import { executeToolsInParallel } from './utils/tool-executor';
 import { WorkflowState } from './workflow-state';
 
@@ -87,6 +94,7 @@ export class WorkflowBuilderAgent {
 				this.logger,
 				this.instanceUrl,
 			),
+			createGetNodeParameterTool(),
 		];
 
 		// Create a map for quick tool lookup
@@ -104,10 +112,20 @@ export class WorkflowBuilderAgent {
 
 			const prompt = await mainAgentPrompt.invoke({
 				...state,
+				workflowJSON: trimWorkflowJSON(state.workflowJSON),
 				executionData: state.workflowContext?.executionData ?? {},
 				executionSchema: state.workflowContext?.executionSchema ?? [],
 				instanceUrl: this.instanceUrl,
 			});
+
+			const estimatedTokens = estimateTokenCountFromMessages(prompt.messages);
+
+			if (estimatedTokens > MAX_TOTAL_TOKENS - MAX_OUTPUT_TOKENS) {
+				throw new WorkflowStateError(
+					'The current conversation and workflow state is too large to process. Please simplify the workflow and try again.',
+				);
+			}
+
 			const response = await this.llmSimpleTask.bindTools(tools).invoke(prompt);
 
 			return { messages: [response] };

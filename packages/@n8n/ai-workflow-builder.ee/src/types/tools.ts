@@ -123,3 +123,11 @@ export interface NodeSearchOutput {
 	totalResults: number;
 	message: string;
 }
+
+/**
+ * Output type for get node parameter tool
+ */
+export interface GetNodeParameterOutput {
+	message: string;
+	parameter: string;
+}

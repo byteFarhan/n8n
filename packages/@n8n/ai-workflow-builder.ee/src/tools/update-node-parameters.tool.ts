@@ -21,6 +21,7 @@ import {
 	fixExpressionPrefixes,
 } from './utils/parameter-update.utils';
 import type { UpdateNodeParametersOutput } from '../types/tools';
+import { trimWorkflowJSON } from '@/utils/trim-workflow-context';
 
 /**
  * Schema for update node parameters input
@@ -79,7 +80,7 @@ async function processParameterUpdates(
 	);
 
 	const newParameters = (await parametersChain.invoke({
-		workflow_json: workflow,
+		workflow_json: trimWorkflowJSON(workflow),
 		execution_schema: state.workflowContext?.executionSchema ?? 'NO SCHEMA',
 		execution_data: state.workflowContext?.executionData ?? 'NO EXECUTION DATA YET',
 		node_id: nodeId,
