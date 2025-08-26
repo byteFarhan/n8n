@@ -3,6 +3,7 @@ import {
 	MANUAL_TRIGGER_NODE_DISPLAY_NAME,
 	CODE_NODE_NAME,
 	HTTP_REQUEST_NODE_NAME,
+	CODE_NODE_DISPLAY_NAME,
 } from '../../config/constants';
 import { test, expect } from '../../fixtures/base';
 
@@ -22,6 +23,7 @@ test.describe('Canvas Actions', () => {
 		await n8n.canvas.clickNodePlusEndpoint(MANUAL_TRIGGER_NODE_DISPLAY_NAME);
 		await n8n.canvas.fillNodeCreatorSearchBar(CODE_NODE_NAME);
 		await n8n.page.keyboard.press('Enter');
+		await n8n.canvas.nodeCreatorSubItem(CODE_NODE_DISPLAY_NAME).click();
 		await n8n.page.keyboard.press('Escape');
 
 		await expect(n8n.canvas.getCanvasNodes()).toHaveCount(2);
@@ -32,12 +34,10 @@ test.describe('Canvas Actions', () => {
 		await n8n.canvas.addNode(MANUAL_TRIGGER_NODE_NAME);
 		await n8n.canvas.clickNodePlusEndpoint(MANUAL_TRIGGER_NODE_DISPLAY_NAME);
 		await n8n.canvas.fillNodeCreatorSearchBar(CODE_NODE_NAME);
-
-		const sourceElement = n8n.canvas
-			.nodeCreatorNodeItems()
-			.filter({ hasText: CODE_NODE_NAME })
-			.first();
-		await sourceElement.dragTo(n8n.canvas.canvasPane(), { targetPosition: { x: 100, y: 100 } });
+		await n8n.page.keyboard.press('Enter');
+		await n8n.canvas
+			.nodeCreatorSubItem(CODE_NODE_DISPLAY_NAME)
+			.dragTo(n8n.canvas.canvasPane(), { targetPosition: { x: 100, y: 100 } });
 
 		await expect(n8n.canvas.getCanvasNodes()).toHaveCount(2);
 		await expect(n8n.canvas.nodeConnections()).toHaveCount(1);
@@ -77,7 +77,7 @@ test.describe('Canvas Actions', () => {
 
 		await n8n.canvas.addNodeBetweenNodes(
 			MANUAL_TRIGGER_NODE_DISPLAY_NAME,
-			CODE_NODE_NAME,
+			CODE_NODE_DISPLAY_NAME,
 			HTTP_REQUEST_NODE_NAME,
 		);
 
@@ -118,7 +118,7 @@ test.describe('Canvas Actions', () => {
 			await n8n.canvas.addNode(MANUAL_TRIGGER_NODE_NAME);
 			await n8n.canvas.addNode(CODE_NODE_NAME, { closeNDV: true });
 
-			const disableButton = n8n.canvas.nodeDisableButton(CODE_NODE_NAME);
+			const disableButton = n8n.canvas.nodeDisableButton(CODE_NODE_DISPLAY_NAME);
 			await disableButton.click();
 
 			await expect(n8n.canvas.disabledNodes()).toHaveCount(1);
@@ -142,7 +142,7 @@ test.describe('Canvas Actions', () => {
 		await n8n.canvas.addNode(MANUAL_TRIGGER_NODE_NAME);
 		await n8n.canvas.addNode(CODE_NODE_NAME, { closeNDV: true });
 		await n8n.canvasComposer.selectAllAndCopy();
-		await n8n.canvas.nodeByName(CODE_NODE_NAME).click();
+		await n8n.canvas.nodeByName(CODE_NODE_DISPLAY_NAME).click();
 		await n8n.canvasComposer.copySelectedNodesWithToast();
 
 		await expect(n8n.canvas.getCanvasNodes()).toHaveCount(2);
